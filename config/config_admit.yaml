@@ -1,0 +1,69 @@
+parameters:
+  urdf_string: ../urdf/meca_robot_with_botaandshaft.urdf
+  end_link_name: ee_tool_link
+  tip_link_name: ee_tool_tip2
+  dt: 0.01
+  smooth: 0.85
+  wp: 1000.0
+  wdq: 0.01
+  wr: 30.0
+  ki: 0.0
+  wo: 0.0
+  force_sensor_alpha: 1.0
+  record: true
+  q_min:
+  - -3.05
+  - -1.22
+  - -1.22
+  - -2.96
+  - -1.91
+  - -3.14
+  q_max:
+  - 3.05
+  - 1.22
+  - 1.22
+  - 2.96
+  - 1.91
+  - 3.14
+  dq_max:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.2
+  - 1.2
+  - 1.5
+observer:
+  name: None
+  L: 0.0
+admittance:
+  force_gain: 1.2
+  torque_gain: 15.0
+  damping: 25.0
+  mass: 0.5
+  rot_damping: 1.0
+  rot_mass: 0.05
+  enable_manipulability_scaling: true
+  manipulability_target: 0.05
+  min_manipulability_scale: 0.8
+  max_manipulability_scale: 2.2
+  manipulability_epsilon: 0.0001
+  debug_jitter: true
+  compliance_offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  reduandant_pos_axis:
+  - 0.0
+  - 0.0
+  - 0.0
+  reduandant_rot_axis:
+  - 0.0
+  - 0.0
+  - 0.0
+rcm:
+  cone_angle_deg: 1.5
+  kp_angle: 1.2
+  kd_angle: 3.0
+  stiffness: 150.0
+  damping: 40.0
+  max_force: 50.0
