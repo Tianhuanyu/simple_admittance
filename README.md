@@ -17,6 +17,8 @@ This project received hardware support from the BOTA System.
 ## Dependencies
 
 - `numpy`
+- `pyoptas`
+- `mecademicpy`
 - `pyyaml`
 - `optas`
 - `casadi`
@@ -29,13 +31,13 @@ This project received hardware support from the BOTA System.
 Install required packages:
 
 ```bash
-pip install optas casadi numpy pyyaml pyserial crc
+pip install optas casadi numpy pyyaml pyserial crc mecademicpy pyoptas
 ```
 
 Quick check:
 
 ```bash
-python3 -c "import optas, casadi; print('optas/casadi ok')"
+python -c "import optas, casadi; print('optas/casadi ok')"
 ```
 
 If you run in ROS environment, `ament_index_python` can be used automatically.
@@ -70,11 +72,15 @@ Admittance:
 Simulation:
 
 ```bash
-python3 admittance_entry.py --mode sim --steps 0
+python admittance_entry.py --mode sim --steps 0
 ```
 
 Hardware:
-
+(Linux)
 ```bash
-python3 admittance_entry.py --mode hardware --steps 0 --robot-ip 192.168.0.100 --sensor-port /dev/ttyUSB0
+python admittance_entry.py --mode hardware --steps 0 --robot-ip 192.168.0.100 --sensor-port /dev/ttyUSB0
+```
+(Windows)
+```bash
+python admittance_entry.py --mode hardware --steps 0 --robot-ip 192.168.0.100 --sensor-port COM3
 ```
