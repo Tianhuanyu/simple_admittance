@@ -92,6 +92,8 @@ class HardwareAdmittanceSession:
         self._record_thread: Optional[threading.Thread] = None
         self._record_file = None
         self._record_writer = None
+        self._replay_stop = threading.Event()
+        self._replay_thread: Optional[threading.Thread] = None
 
         self._status_lock = threading.Lock()
         self.last_q = np.zeros(6, dtype=float)
@@ -123,6 +125,7 @@ class HardwareAdmittanceSession:
         self.sensor.start()
 
     def disconnect(self) -> None:
+        self.stop_replay()
         self.stop_record()
         self.stop_handguide()
 
@@ -171,6 +174,7 @@ class HardwareAdmittanceSession:
     def move_home(self) -> None:
         if self.robot is None:
             raise RuntimeError("Robot is not connected")
+        self.stop_replay()
         self.stop_handguide()
         with self._io_lock:
             self.robot.MoveJoints(*[float(v) for v in np.rad2deg(self.home_q_rad)])
@@ -210,6 +214,8 @@ class HardwareAdmittanceSession:
             return False
         if self.robot is None:
             raise RuntimeError("Robot is not connected")
+        if self.is_replaying():
+            raise RuntimeError("Cannot start hand-guide while replay is running")
 
         self._handguide_stop.clear()
         self._handguide_thread = threading.Thread(
@@ -259,6 +265,8 @@ class HardwareAdmittanceSession:
             return False
         if self.robot is None:
             raise RuntimeError("Robot is not connected")
+        if self.is_replaying():
+            raise RuntimeError("Cannot start record while replay is running")
 
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         self._record_file = output_csv.open("w", newline="", encoding="utf-8")
@@ -293,6 +301,77 @@ class HardwareAdmittanceSession:
 
     def is_recording(self) -> bool:
         return self._record_thread is not None and self._record_thread.is_alive()
+
+    def _load_replay_points(self, csv_path: Path) -> list[tuple[float, np.ndarray]]:
+        if not csv_path.exists():
+            raise FileNotFoundError(f"Replay file not found: {csv_path}")
+
+        points: list[tuple[float, np.ndarray]] = []
+        with csv_path.open("r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            required = ["elapsed_s"] + [f"q{i+1}_deg" for i in range(6)]
+            for key in required:
+                if key not in (reader.fieldnames or []):
+                    raise ValueError(f"Replay CSV missing required column: {key}")
+
+            for row in reader:
+                elapsed_s = float(row["elapsed_s"])
+                q_deg = np.array([float(row[f"q{i+1}_deg"]) for i in range(6)], dtype=float)
+                points.append((elapsed_s, q_deg))
+
+        if not points:
+            raise ValueError("Replay CSV is empty")
+        return points
+
+    def _replay_loop(self, csv_path: Path, speed: float) -> None:
+        points = self._load_replay_points(csv_path)
+        t0 = time.time()
+
+        for elapsed_s, q_deg in points:
+            if self._replay_stop.is_set():
+                break
+
+            target_t = t0 + (elapsed_s / speed)
+            while True:
+                remain = target_t - time.time()
+                if remain <= 0.0:
+                    break
+                if self._replay_stop.is_set():
+                    return
+                time.sleep(min(0.005, remain))
+
+            with self._io_lock:
+                self.robot.MoveJoints(*[float(v) for v in q_deg])
+
+    def start_replay(self, csv_path: Path, speed: float = 1.0) -> bool:
+        if self._replay_thread is not None and self._replay_thread.is_alive():
+            return False
+        if self.robot is None:
+            raise RuntimeError("Robot is not connected")
+        if speed <= 0.0:
+            raise ValueError("Replay speed must be positive")
+
+        self.stop_handguide()
+        self.stop_record()
+        self._replay_stop.clear()
+        self._replay_thread = threading.Thread(
+            target=self._replay_loop,
+            args=(csv_path, float(speed)),
+            daemon=True,
+        )
+        self._replay_thread.start()
+        return True
+
+    def stop_replay(self) -> bool:
+        if self._replay_thread is None:
+            return False
+        self._replay_stop.set()
+        self._replay_thread.join(timeout=2.0)
+        self._replay_thread = None
+        return True
+
+    def is_replaying(self) -> bool:
+        return self._replay_thread is not None and self._replay_thread.is_alive()
 
 
 def run_sim_loop(config: dict, steps: int, print_every: int) -> None:
@@ -413,11 +492,23 @@ def run_hardware_gui(
 
     root = tk.Tk()
     root.title("Admittance Controller Panel")
-    root.geometry("460x220")
+    root.geometry("460x260")
     root.resizable(False, False)
 
     status_var = tk.StringVar(value="Connected. Ready.")
     record_file_var = tk.StringVar(value="Record file: <none>")
+    latest_record_file: Optional[Path] = None
+
+    def find_latest_record_file() -> Optional[Path]:
+        candidates = sorted(record_dir.glob("admittance_record_*.csv"))
+        if not candidates:
+            return None
+        return candidates[-1]
+
+    latest_existing = find_latest_record_file()
+    if latest_existing is not None:
+        latest_record_file = latest_existing
+        record_file_var.set(f"Record file: {latest_record_file}")
 
     def set_status(text: str) -> None:
         status_var.set(text)
@@ -439,6 +530,10 @@ def run_hardware_gui(
             set_status("Hand-guide stopped.")
             return
 
+        if session.is_replaying():
+            set_status("Stop replay before starting hand-guide.")
+            return
+
         session.start_handguide(print_every=50, max_steps=0)
         hand_guide_btn.configure(text="Stop Hand-Guide")
         set_status("Hand-guide running.")
@@ -448,11 +543,13 @@ def run_hardware_gui(
             root.after(0, lambda: set_status("Moving to home point..."))
             session.move_home()
             root.after(0, lambda: hand_guide_btn.configure(text="Hand-Guide"))
+            root.after(0, lambda: replay_btn.configure(text="Replay"))
             root.after(0, lambda: set_status("Reached home point."))
 
         run_background(task, "Home Error")
 
     def on_record_click() -> None:
+        nonlocal latest_record_file
         if session.is_recording():
             session.stop_record()
             record_btn.configure(text="Record")
@@ -461,27 +558,70 @@ def run_hardware_gui(
 
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_csv = record_dir / f"admittance_record_{now}.csv"
-        session.start_record(output_csv)
+        try:
+            session.start_record(output_csv)
+        except Exception as exc:
+            messagebox.showerror("Record Error", str(exc))
+            set_status(f"Error: {exc}")
+            return
+        latest_record_file = output_csv
         record_btn.configure(text="Stop Record")
         record_file_var.set(f"Record file: {output_csv}")
         set_status("Recording started.")
 
+    def on_replay_click() -> None:
+        nonlocal latest_record_file
+        if session.is_replaying():
+            session.stop_replay()
+            replay_btn.configure(text="Replay")
+            set_status("Replay stopped.")
+            return
+
+        if latest_record_file is None:
+            latest_record_file = find_latest_record_file()
+        if latest_record_file is None:
+            set_status("No record file found for replay.")
+            return
+
+        try:
+            session.start_replay(latest_record_file, speed=1.0)
+        except Exception as exc:
+            messagebox.showerror("Replay Error", str(exc))
+            set_status(f"Error: {exc}")
+            return
+
+        hand_guide_btn.configure(text="Hand-Guide")
+        record_btn.configure(text="Record")
+        replay_btn.configure(text="Stop Replay")
+        record_file_var.set(f"Record file: {latest_record_file}")
+        set_status("Replay started.")
+
     hand_guide_btn = tk.Button(root, text="Hand-Guide", width=16, height=2, command=on_hand_guide_click)
     home_btn = tk.Button(root, text="Home", width=16, height=2, command=on_home_click)
     record_btn = tk.Button(root, text="Record", width=16, height=2, command=on_record_click)
+    replay_btn = tk.Button(root, text="Replay", width=16, height=2, command=on_replay_click)
 
     hand_guide_btn.grid(row=0, column=0, padx=12, pady=16)
     home_btn.grid(row=0, column=1, padx=12, pady=16)
     record_btn.grid(row=0, column=2, padx=12, pady=16)
+    replay_btn.grid(row=1, column=1, padx=12, pady=4)
 
     status_label = tk.Label(root, textvariable=status_var, anchor="w")
-    status_label.grid(row=1, column=0, columnspan=3, sticky="we", padx=12, pady=8)
+    status_label.grid(row=2, column=0, columnspan=3, sticky="we", padx=12, pady=8)
 
     record_label = tk.Label(root, textvariable=record_file_var, anchor="w", justify="left", wraplength=430)
-    record_label.grid(row=2, column=0, columnspan=3, sticky="we", padx=12)
+    record_label.grid(row=3, column=0, columnspan=3, sticky="we", padx=12)
 
     for col in range(3):
         root.grid_columnconfigure(col, weight=1)
+
+    def poll_runtime_state() -> None:
+        if (not session.is_replaying()) and replay_btn.cget("text") == "Stop Replay":
+            replay_btn.configure(text="Replay")
+            set_status("Replay finished.")
+        root.after(300, poll_runtime_state)
+
+    root.after(300, poll_runtime_state)
 
     def on_close() -> None:
         try:

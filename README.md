@@ -94,6 +94,7 @@ Buttons in GUI:
 - `Hand-Guide`: enter/stop admittance hand-guiding mode
 - `Home`: move robot to predefined home joint angles from config (`parameters.home_joint_deg`)
 - `Record`: start/stop CSV recording
+- `Replay`: replay the latest recorded CSV trajectory using joint points (`q1_deg ... q6_deg`)
 
 Recording CSV format:
 - `timestamp_unix_s`, `elapsed_s`
