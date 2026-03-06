@@ -84,3 +84,19 @@ python admittance_entry.py --mode hardware --steps 0 --robot-ip 192.168.0.100 --
 ```bash
 python admittance_entry.py --mode hardware --steps 0 --robot-ip 192.168.0.100 --sensor-port COM3
 ```
+
+GUI (pure Python `tkinter`, hardware only):
+```bash
+python admittance_entry.py --mode gui --robot-ip 192.168.0.100 --sensor-port /dev/ttyUSB0
+```
+
+Buttons in GUI:
+- `Hand-Guide`: enter/stop admittance hand-guiding mode
+- `Home`: move robot to predefined home joint angles from config (`parameters.home_joint_deg`)
+- `Record`: start/stop CSV recording
+
+Recording CSV format:
+- `timestamp_unix_s`, `elapsed_s`
+- `q1_rad ... q6_rad`
+- `q1_deg ... q6_deg`
+- `fx, fy, fz, mx, my, mz`

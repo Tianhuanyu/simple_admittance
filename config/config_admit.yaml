@@ -11,6 +11,13 @@ parameters:
   wo: 0.0
   force_sensor_alpha: 1.0
   record: true
+  home_joint_deg:
+  - -90.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
   q_min:
   - -3.05
   - -1.22
