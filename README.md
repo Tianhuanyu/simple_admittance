@@ -96,6 +96,14 @@ Buttons in GUI:
 - `Record`: start/stop CSV recording
 - `Replay`: replay the latest recorded CSV trajectory using joint points (`q1_deg ... q6_deg`)
 
+Replay behavior details:
+- Replay uses the most recent file in `records/` matching `admittance_record_*.csv` (or the file from the latest `Record` action in the current GUI session).
+- Replay timing follows the recorded `elapsed_s` column to preserve trajectory timing.
+- Replay command source is joint angle columns `q1_deg ... q6_deg`.
+- Starting replay automatically stops `Hand-Guide` and `Record` to avoid command conflicts.
+- `Home` also stops replay before moving to the home point.
+- Press `Replay` again while replay is running to stop playback.
+
 Recording CSV format:
 - `timestamp_unix_s`, `elapsed_s`
 - `q1_rad ... q6_rad`
